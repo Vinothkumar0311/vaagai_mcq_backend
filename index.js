@@ -126,6 +126,27 @@ async function seedRegistrationsIfEmpty() {
   }
 }
 
+// Function to alter database and tables to utf8mb4 to support unicode/Tamil characters
+async function ensureUtf8mb4() {
+  try {
+    const dbName = process.env.DB_NAME;
+    console.log(`Ensuring database and tables use utf8mb4 character set...`);
+    
+    await sequelize.query(`SET FOREIGN_KEY_CHECKS = 0;`);
+    await sequelize.query(`ALTER DATABASE \`${dbName}\` CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci;`);
+    
+    const tables = ['users', 'tests', 'questions', 'test_assignments', 'results', 'answers', 'examiner_registrations'];
+    for (const table of tables) {
+      await sequelize.query(`ALTER TABLE \`${table}\` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
+    }
+    await sequelize.query(`SET FOREIGN_KEY_CHECKS = 1;`);
+    console.log(`Database and tables successfully converted to utf8mb4!`);
+  } catch (err) {
+    await sequelize.query(`SET FOREIGN_KEY_CHECKS = 1;`).catch(() => {});
+    console.error(`Error converting database/tables to utf8mb4:`, err.message);
+  }
+}
+
 // Sync Database and Start Server
 sequelize.authenticate()
   .then(() => {
@@ -133,6 +154,7 @@ sequelize.authenticate()
     return sequelize.sync();
   })
   .then(async () => {
+    await ensureUtf8mb4();
     await seedRegistrationsIfEmpty();
     app.listen(PORT, () => {
       console.log(`=========================================`);
