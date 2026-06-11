@@ -579,6 +579,9 @@ const addQuestion = async (req, res) => {
     let imageUrl = null;
     if (req.file) {
       const fs = require('fs');
+      if (!fs.existsSync(UPLOADS_DIR)) {
+        fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+      }
       const ext = path.extname(req.file.originalname).toLowerCase();
       const savedName = `${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
       const destPath = path.join(UPLOADS_DIR, savedName);
@@ -618,6 +621,9 @@ const updateQuestion = async (req, res) => {
     let imageUrl = q.imageUrl;
     if (req.file) {
       const fs = require('fs');
+      if (!fs.existsSync(UPLOADS_DIR)) {
+        fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+      }
       const ext = path.extname(req.file.originalname).toLowerCase();
       const savedName = `${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
       const destPath = path.join(UPLOADS_DIR, savedName);

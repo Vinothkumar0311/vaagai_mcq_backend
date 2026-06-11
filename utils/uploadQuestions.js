@@ -174,6 +174,9 @@ function saveImageFile(buffer, originalName, uploadsDir) {
   const ext = path.extname(originalName).toLowerCase() || '.png';
   const safeName = `${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
   const destPath = path.join(uploadsDir, safeName);
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
   fs.writeFileSync(destPath, buffer);
   return safeName;
 }
