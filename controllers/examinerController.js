@@ -175,12 +175,12 @@ const submitTest = async (req, res) => {
   const { testId, answers, timeTaken, forceZeroScore } = req.body; // answers: [{ questionId, selectedOption }]
   const userId = req.user.id;
 
-  if (!testId || (!forceZeroScore && !Array.isArray(answers))) {
-    return res.status(400).json({ error: 'Test ID and answers list are required.' });
+  if (!testId) {
+    return res.status(400).json({ error: 'Test ID is required.' });
   }
 
   try {
-    // 1. Ensure only one attempt
+    // 1. Ensure only one attempt (for security force-submit, silently return success if already submitted)
     const existingResult = await Result.findOne({
       where: {
         testId,
@@ -189,6 +189,16 @@ const submitTest = async (req, res) => {
     });
 
     if (existingResult) {
+      if (forceZeroScore) {
+        // Already submitted (possibly a duplicate security trigger) — return success silently
+        return res.status(200).json({
+          message: 'Test already submitted.',
+          score: null,
+          total: null,
+          resultId: existingResult.id,
+          resultsPublished: false
+        });
+      }
       return res.status(400).json({ error: 'Single attempt only. You have already submitted answers for this test.' });
     }
 
@@ -232,23 +242,32 @@ const submitTest = async (req, res) => {
 
     if (forceZeroScore) {
       // Forced zero score (due to fullscreen exit security violation)
+      // Use a Set to prevent duplicate questionIds
+      const seenIds = new Set();
       questions.forEach(q => {
-        submissionAnswers.push({
-          questionId: q.id,
-          selectedOption: ''
-        });
+        if (!seenIds.has(q.id)) {
+          seenIds.add(q.id);
+          submissionAnswers.push({
+            questionId: q.id,
+            selectedOption: ''
+          });
+        }
       });
     } else {
       // Calculate score normally
-      answers.forEach(ans => {
-        const correctAnswer = answerKey[ans.questionId];
-        if (correctAnswer && ans.selectedOption === correctAnswer) {
-          score++;
+      const seenIds = new Set();
+      (Array.isArray(answers) ? answers : []).forEach(ans => {
+        if (!seenIds.has(ans.questionId)) {
+          seenIds.add(ans.questionId);
+          const correctAnswer = answerKey[ans.questionId];
+          if (correctAnswer && ans.selectedOption === correctAnswer) {
+            score++;
+          }
+          submissionAnswers.push({
+            questionId: ans.questionId,
+            selectedOption: ans.selectedOption || ''
+          });
         }
-        submissionAnswers.push({
-          questionId: ans.questionId,
-          selectedOption: ans.selectedOption || ''
-        });
       });
     }
 
