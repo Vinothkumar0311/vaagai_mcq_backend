@@ -11,9 +11,42 @@ const examinerRoutes = require('./routes/examiner');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Enable CORS
+// Enable CORS with support for GitHub Pages subpaths and custom origins
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://vinothkumar0311.github.io'
+];
+
+if (process.env.FRONTEND_URL) {
+  try {
+    const originUrl = new URL(process.env.FRONTEND_URL).origin;
+    if (!allowedOrigins.includes(originUrl)) {
+      allowedOrigins.push(originUrl);
+    }
+  } catch (err) {
+    // Ignore invalid URLs
+  }
+  const cleanUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
+  if (!allowedOrigins.includes(cleanUrl)) {
+    allowedOrigins.push(cleanUrl);
+  }
+}
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const isAllowed = allowedOrigins.some(allowed => {
+      try {
+        return origin === allowed || new URL(allowed).origin === origin;
+      } catch (e) {
+        return origin === allowed;
+      }
+    });
+    if (isAllowed) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 
