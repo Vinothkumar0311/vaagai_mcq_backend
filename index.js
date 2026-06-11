@@ -14,7 +14,8 @@ const PORT = process.env.PORT || 5000;
 // Enable CORS with support for GitHub Pages subpaths and custom origins
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://vinothkumar0311.github.io'
+  'https://vinothkumar0311.github.io',
+  'https://vaagaimcq.vinothvk.in'
 ];
 
 if (process.env.FRONTEND_URL) {
