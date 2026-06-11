@@ -15,31 +15,56 @@ const getAssignedTests = async (req, res) => {
   try {
     const email = req.user.email.toLowerCase();
 
-    // Find tests assigned to this email
+    // Fetch all assignments for this email
     const assignments = await TestAssignment.findAll({
-      where: {
-        examineeEmail: email
-      },
+      where: { examineeEmail: email }
+    });
+    const assignedTestIds = new Set(assignments.map(a => a.testId));
+
+    // Get examiner's class
+    let examinerClass = req.user.class;
+    if (examinerClass === undefined) {
+      const dbUser = await User.findByPk(req.user.id);
+      examinerClass = dbUser ? dbUser.class : null;
+    }
+    const cleanExaminerClass = examinerClass ? examinerClass.trim().toLowerCase() : null;
+
+    // Fetch all published tests
+    const allPublishedTests = await Test.findAll({
+      where: { status: 'PUBLISHED' },
       include: [
         {
-          model: Test,
-          include: [
-            {
-              model: Question,
-              attributes: ['id']
-            },
-            {
-              model: Result,
-              where: { userId: req.user.id },
-              required: false
-            }
-          ]
+          model: Result,
+          where: { userId: req.user.id },
+          required: false
         }
       ]
     });
 
-    const tests = assignments.map(a => {
-      const test = a.Test;
+    const filteredTests = [];
+
+    for (const test of allPublishedTests) {
+      const allowed = Array.isArray(test.allowedClasses) ? test.allowedClasses : [];
+      const isClassAllowed = allowed.length === 0 || (cleanExaminerClass && allowed.some(c => c.trim().toLowerCase() === cleanExaminerClass));
+
+      if (assignedTestIds.has(test.id) || isClassAllowed) {
+        filteredTests.push(test);
+      }
+    }
+
+    let questionCount = 0;
+    if (cleanExaminerClass) {
+      questionCount = await Question.count({
+        where: sequelize.where(
+          sequelize.fn('lower', sequelize.col('class')),
+          cleanExaminerClass
+        )
+      });
+    } else {
+      questionCount = await Question.count();
+    }
+
+    const tests = filteredTests.map(test => {
       const result = test.Results[0] || null;
       const resultsPublished = !!test.publishResults;
       
@@ -49,7 +74,7 @@ const getAssignedTests = async (req, res) => {
         date: test.date,
         duration: test.duration,
         status: test.status,
-        questionCount: test.Questions.length,
+        questionCount: questionCount,
         hasAttempted: !!result,
         score: (result && resultsPublished) ? result.score : null,
         total: (result && resultsPublished) ? result.total : null,
@@ -58,10 +83,7 @@ const getAssignedTests = async (req, res) => {
       };
     });
 
-    // Only return published tests
-    const publishedTests = tests.filter(t => t.status === 'PUBLISHED');
-
-    res.json(publishedTests);
+    res.json(tests);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -74,6 +96,12 @@ const getTestQuestions = async (req, res) => {
   const email = req.user.email.toLowerCase();
 
   try {
+    const test = await Test.findByPk(id);
+
+    if (!test || test.status !== 'PUBLISHED') {
+      return res.status(404).json({ error: 'Test not found or not published.' });
+    }
+
     // 1. Check if test assignment exists
     const assignment = await TestAssignment.findOne({
       where: {
@@ -82,7 +110,17 @@ const getTestQuestions = async (req, res) => {
       }
     });
 
-    if (!assignment) {
+    let examinerClass = req.user.class;
+    if (examinerClass === undefined) {
+      const dbUser = await User.findByPk(userId);
+      examinerClass = dbUser ? dbUser.class : null;
+    }
+    const cleanExaminerClass = examinerClass ? examinerClass.trim().toLowerCase() : null;
+
+    const allowedClasses = Array.isArray(test.allowedClasses) ? test.allowedClasses : [];
+    const isClassAllowed = allowedClasses.length === 0 || (cleanExaminerClass && allowedClasses.some(c => c.trim().toLowerCase() === cleanExaminerClass));
+
+    if (!assignment && !isClassAllowed) {
       return res.status(403).json({ error: 'You are not assigned to this test.' });
     }
 
@@ -101,33 +139,19 @@ const getTestQuestions = async (req, res) => {
       });
     }
 
-    // 3. Fetch test and questions
-    const test = await Test.findByPk(id, {
-      include: [
-        {
-          model: Question,
-          attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'class']
-        }
-      ]
-    });
-
-    if (!test || test.status !== 'PUBLISHED') {
-      return res.status(404).json({ error: 'Test not found or not published.' });
-    }
-
-    // 4. Filter questions by examiner class
-    let examinerClass = req.user.class;
-    if (examinerClass === undefined) {
-      const dbUser = await User.findByPk(userId);
-      examinerClass = dbUser ? dbUser.class : null;
-    }
-
-    const cleanExaminerClass = examinerClass ? examinerClass.trim().toLowerCase() : null;
-    let filteredQuestions = test.Questions || [];
-    
+    // Fetch questions matching the examiner's class
+    let filteredQuestions = [];
     if (cleanExaminerClass) {
-      filteredQuestions = filteredQuestions.filter(q => {
-        return q.class && q.class.trim().toLowerCase() === cleanExaminerClass;
+      filteredQuestions = await Question.findAll({
+        where: sequelize.where(
+          sequelize.fn('lower', sequelize.col('class')),
+          cleanExaminerClass
+        ),
+        attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'class']
+      });
+    } else {
+      filteredQuestions = await Question.findAll({
+        attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'class']
       });
     }
 
@@ -174,12 +198,27 @@ const submitTest = async (req, res) => {
       return res.status(404).json({ error: 'Test not found.' });
     }
 
-    const questions = await Question.findAll({
-      where: { testId }
-    });
+    let examinerClass = req.user.class;
+    if (examinerClass === undefined) {
+      const dbUser = await User.findByPk(userId);
+      examinerClass = dbUser ? dbUser.class : null;
+    }
+    const cleanExaminerClass = examinerClass ? examinerClass.trim().toLowerCase() : null;
+
+    let questions = [];
+    if (cleanExaminerClass) {
+      questions = await Question.findAll({
+        where: sequelize.where(
+          sequelize.fn('lower', sequelize.col('class')),
+          cleanExaminerClass
+        )
+      });
+    } else {
+      questions = await Question.findAll();
+    }
 
     if (questions.length === 0) {
-      return res.status(400).json({ error: 'No questions found for this test.' });
+      return res.status(400).json({ error: 'No questions found for your class.' });
     }
 
     // Create a map of questionId -> correctAnswer
@@ -261,16 +300,9 @@ const getResultDetails = async (req, res) => {
   try {
     let result = await Result.findByPk(id, {
       include: [
-        {
-          model: Test,
-          include: [Question]
-        },
-        {
-          model: Answer
-        },
-        {
-          model: User
-        }
+        { model: Test },
+        { model: Answer },
+        { model: User }
       ]
     });
 
@@ -279,16 +311,9 @@ const getResultDetails = async (req, res) => {
       result = await Result.findOne({
         where: { testId: id, userId },
         include: [
-          {
-            model: Test,
-            include: [Question]
-          },
-          {
-            model: Answer
-          },
-          {
-            model: User
-          }
+          { model: Test },
+          { model: Answer },
+          { model: User }
         ]
       });
     }
@@ -308,12 +333,29 @@ const getResultDetails = async (req, res) => {
       return res.status(403).json({ error: 'Results for this assessment have not been published by the administrator yet.' });
     }
 
-    const plain = result.get({ plain: true });
+    // Enrich result with class-based questions for review display
+    const plainResult = result.get({ plain: true });
+    if (plainResult.Test) {
+      let questions = [];
+      const userClass = result.User ? result.User.class : null;
+      if (userClass) {
+        questions = await Question.findAll({
+          where: sequelize.where(
+            sequelize.fn('lower', sequelize.col('class')),
+            userClass.trim().toLowerCase()
+          )
+        });
+      } else {
+        questions = await Question.findAll();
+      }
+      plainResult.Test.Questions = questions.map(q => q.get({ plain: true }));
+    }
+
     const formattedResult = {
-      ...plain,
-      testName: plain.Test ? plain.Test.name : 'N/A',
-      userName: plain.User ? plain.User.name : 'N/A',
-      userEmail: plain.User ? plain.User.email : 'N/A'
+      ...plainResult,
+      testName: plainResult.Test ? plainResult.Test.name : 'N/A',
+      userName: plainResult.User ? plainResult.User.name : 'N/A',
+      userEmail: plainResult.User ? plainResult.User.email : 'N/A'
     };
 
     res.json(formattedResult);

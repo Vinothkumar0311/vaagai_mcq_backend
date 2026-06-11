@@ -46,28 +46,17 @@ const createTest = async (req, res) => {
   }
 };
 
-// Upload Questions via Excel (supports text-only, ZIP with images, or Excel + separate image files)
+// Upload Questions via Excel to the Global Question Bank (class-tagged, no testId required)
 // Accepted upload modes:
-//   1. Single Excel file (.xlsx / .xls)  – text-based questions only
+//   1. Single Excel file (.xlsx / .xls)  – questions must have a "Class" column
 //   2. Single ZIP file (.zip)            – must contain one .xlsx and any number of image files
 //   3. Excel file + multiple image files – field 'file' = Excel, field 'images' = image files
 const uploadQuestions = async (req, res) => {
-  const { testId } = req.body;
-
-  if (!testId) {
-    return res.status(400).json({ error: 'Test ID is required.' });
-  }
-
   if (!req.file) {
     return res.status(400).json({ error: 'Please upload an Excel file (.xlsx) or a ZIP archive containing the Excel + images.' });
   }
 
   try {
-    const test = await Test.findByPk(testId);
-    if (!test) {
-      return res.status(404).json({ error: 'Test not found.' });
-    }
-
     // Separately uploaded image files (multipart field: images)
     const imageFiles = req.files && req.files.images ? req.files.images : [];
 
@@ -75,25 +64,137 @@ const uploadQuestions = async (req, res) => {
       req.file.buffer,
       req.file.mimetype,
       req.file.originalname,
-      testId,
+      null, // no testId — global question bank
       UPLOADS_DIR,
       PUBLIC_IMAGE_PATH,
       imageFiles
     );
 
-    // Delete existing questions for this test and re-insert
-    await Question.destroy({ where: { testId } });
-    const createdQuestions = await Question.bulkCreate(questionsData);
+    // Fetch all existing questions to check for duplicates in DB
+    const existing = await Question.findAll();
+    const seen = new Set();
+    
+    // Populate seen with DB questions
+    existing.forEach(q => {
+      const normQuestion = (q.question || '').trim().toLowerCase();
+      const normClass = (q.class || '').trim().toLowerCase();
+      const normA = (q.optionA || '').trim().toLowerCase();
+      const normB = (q.optionB || '').trim().toLowerCase();
+      const normC = (q.optionC || '').trim().toLowerCase();
+      const normD = (q.optionD || '').trim().toLowerCase();
+      const normAns = (q.correctAnswer || '').trim().toUpperCase();
+
+      const key = `${normQuestion}|${normClass}|${normA}|${normB}|${normC}|${normD}|${normAns}`;
+      seen.add(key);
+    });
+
+    const uniqueQuestionsToInsert = [];
+    let duplicateFileCount = 0;
+    let duplicateDbCount = 0;
+    const batchSeen = new Set();
+
+    questionsData.forEach(q => {
+      const normQuestion = (q.question || '').trim().toLowerCase();
+      const normClass = (q.class || '').trim().toLowerCase();
+      const normA = (q.optionA || '').trim().toLowerCase();
+      const normB = (q.optionB || '').trim().toLowerCase();
+      const normC = (q.optionC || '').trim().toLowerCase();
+      const normD = (q.optionD || '').trim().toLowerCase();
+      const normAns = (q.correctAnswer || '').trim().toUpperCase();
+
+      const key = `${normQuestion}|${normClass}|${normA}|${normB}|${normC}|${normD}|${normAns}`;
+
+      if (batchSeen.has(key)) {
+        duplicateFileCount++;
+      } else if (seen.has(key)) {
+        duplicateDbCount++;
+      } else {
+        batchSeen.add(key);
+        uniqueQuestionsToInsert.push(q);
+      }
+    });
+
+    let createdCount = 0;
+    let createdQuestions = [];
+    if (uniqueQuestionsToInsert.length > 0) {
+      createdQuestions = await Question.bulkCreate(uniqueQuestionsToInsert);
+      createdCount = createdQuestions.length;
+    }
+
+    let message = '';
+    if (createdCount > 0) {
+      message = `Successfully uploaded ${createdCount} new question(s).`;
+      if (duplicateDbCount > 0 || duplicateFileCount > 0) {
+        message += ` Skipped ${duplicateDbCount} duplicate question(s) already in bank, and ${duplicateFileCount} repeated question(s) inside the file.`;
+      }
+    } else {
+      message = `No new questions were added. All ${duplicateDbCount + duplicateFileCount} uploaded question(s) already exist.`;
+    }
 
     res.json({
-      message: `Successfully uploaded ${createdQuestions.length} question(s).`,
-      count: createdQuestions.length,
+      message,
+      count: createdCount,
       imageCount: createdQuestions.filter(q => q.imageUrl).length,
       warnings: warnings.length > 0 ? warnings : undefined
     });
 
   } catch (error) {
     console.error('Upload questions error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Get All Questions from the Global Question Bank (with class filter & pagination)
+const getQuestions = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const search = req.query.search || '';
+    const className = req.query.class || '';
+    const skip = (page - 1) * limit;
+
+    const where = {};
+    if (className) {
+      if (className === 'Unassigned') {
+        where.class = { [Op.or]: [null, ''] };
+      } else {
+        where.class = className;
+      }
+    }
+    if (search) {
+      where.question = { [Op.like]: `%${search}%` };
+    }
+
+    const { rows: questions, count: total } = await Question.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      offset: skip,
+      limit
+    });
+
+    // Class wise distribution of questions
+    const distribution = await Question.findAll({
+      attributes: [
+        [sequelize.col('class'), 'className'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+      ],
+      group: ['class']
+    });
+
+    const classDistribution = distribution.map(d => {
+      const plain = d.get({ plain: true });
+      return {
+        className: plain.className || 'Unassigned',
+        count: parseInt(plain.count, 10) || 0
+      };
+    });
+
+    res.json({
+      questions,
+      classDistribution,
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
@@ -218,10 +319,6 @@ const getTests = async (req, res) => {
       attributes: {
         include: [
           [
-            sequelize.literal('(SELECT COUNT(*) FROM questions WHERE questions.testId = Test.id)'),
-            'questionCount'
-          ],
-          [
             sequelize.literal('(SELECT COUNT(*) FROM test_assignments WHERE test_assignments.testId = Test.id)'),
             'assignmentCount'
           ],
@@ -236,8 +333,38 @@ const getTests = async (req, res) => {
       ]
     });
 
+    // Fetch counts grouped by class
+    const questionCountsByClass = await Question.findAll({
+      attributes: [
+        [sequelize.fn('lower', sequelize.col('class')), 'classGroup'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+      ],
+      group: [sequelize.fn('lower', sequelize.col('class'))]
+    });
+
+    const classCountMap = {};
+    let totalQuestionsCount = 0;
+    questionCountsByClass.forEach(q => {
+      const cls = q.getDataValue('classGroup') ? q.getDataValue('classGroup').trim().toLowerCase() : 'noclass';
+      const cnt = parseInt(q.getDataValue('count'), 10) || 0;
+      classCountMap[cls] = cnt;
+      totalQuestionsCount += cnt;
+    });
+
     const formattedTests = tests.map(t => {
       const plain = t.get({ plain: true });
+      
+      let qCount = 0;
+      const allowed = Array.isArray(plain.allowedClasses) ? plain.allowedClasses : [];
+      if (allowed.length > 0) {
+        allowed.forEach(c => {
+          const normC = c.trim().toLowerCase();
+          qCount += classCountMap[normC] || 0;
+        });
+      } else {
+        qCount = totalQuestionsCount;
+      }
+
       return {
         id: plain.id,
         name: plain.name,
@@ -248,7 +375,7 @@ const getTests = async (req, res) => {
         createdAt: plain.createdAt,
         updatedAt: plain.updatedAt,
         _count: {
-          questions: plain.questionCount,
+          questions: qCount,
           assignments: plain.assignmentCount,
           results: plain.resultCount
         }
@@ -268,9 +395,6 @@ const getTestDetails = async (req, res) => {
     const test = await Test.findByPk(id, {
       include: [
         {
-          model: Question
-        },
-        {
           model: TestAssignment,
           include: [User]
         }
@@ -281,7 +405,24 @@ const getTestDetails = async (req, res) => {
       return res.status(404).json({ error: 'Test not found' });
     }
 
-    res.json(test);
+    const allowed = Array.isArray(test.allowedClasses) ? test.allowedClasses : [];
+    let questions = [];
+    if (allowed.length > 0) {
+      questions = await Question.findAll({
+        where: {
+          class: {
+            [Op.in]: allowed
+          }
+        }
+      });
+    } else {
+      questions = await Question.findAll();
+    }
+
+    const plainTest = test.get({ plain: true });
+    plainTest.Questions = questions;
+
+    res.json(plainTest);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -400,12 +541,12 @@ const getAdminStats = async (req, res) => {
 };
 
 
-// Add a Single Question manually (with optional image upload)
+// Add a Single Question manually to the Global Question Bank (no testId required)
 const addQuestion = async (req, res) => {
-  const { testId, question, optionA, optionB, optionC, optionD, correctAnswer, explanation } = req.body;
+  const { question, optionA, optionB, optionC, optionD, correctAnswer, explanation, class: questionClass } = req.body;
 
-  if (!testId || !optionA || !optionB || !optionC || !optionD || !correctAnswer) {
-    return res.status(400).json({ error: 'All fields (testId, optionA–D, correctAnswer) are required.' });
+  if (!optionA || !optionB || !optionC || !optionD || !correctAnswer) {
+    return res.status(400).json({ error: 'All fields (optionA–D, correctAnswer) are required.' });
   }
 
   // If no question text is provided, we must have an image
@@ -418,8 +559,22 @@ const addQuestion = async (req, res) => {
   }
 
   try {
-    const test = await Test.findByPk(testId);
-    if (!test) return res.status(404).json({ error: 'Test not found.' });
+    // Check if duplicate question already exists in DB
+    const duplicateCheck = await Question.findOne({
+      where: {
+        question: question || null,
+        class: questionClass || null,
+        optionA: optionA,
+        optionB: optionB,
+        optionC: optionC,
+        optionD: optionD,
+        correctAnswer: correctAnswer.toUpperCase()
+      }
+    });
+
+    if (duplicateCheck) {
+      return res.status(400).json({ error: 'This question already exists in the question bank.' });
+    }
 
     let imageUrl = null;
     if (req.file) {
@@ -432,7 +587,7 @@ const addQuestion = async (req, res) => {
     }
 
     const q = await Question.create({
-      testId,
+      testId: null,
       question: question || null,
       optionA,
       optionB,
@@ -440,7 +595,8 @@ const addQuestion = async (req, res) => {
       optionD,
       correctAnswer: correctAnswer.toUpperCase(),
       imageUrl,
-      explanation: explanation || null
+      explanation: explanation || null,
+      class: questionClass || null
     });
 
     res.status(201).json(q);
@@ -453,7 +609,7 @@ const addQuestion = async (req, res) => {
 // Update a single question
 const updateQuestion = async (req, res) => {
   const { id } = req.params;
-  const { question, optionA, optionB, optionC, optionD, correctAnswer, explanation } = req.body;
+  const { question, optionA, optionB, optionC, optionD, correctAnswer, explanation, class: questionClass } = req.body;
 
   try {
     const q = await Question.findByPk(id);
@@ -482,11 +638,61 @@ const updateQuestion = async (req, res) => {
       optionD: optionD ?? q.optionD,
       correctAnswer: correctAnswer ? correctAnswer.toUpperCase() : q.correctAnswer,
       imageUrl,
-      explanation: explanation !== undefined ? (explanation || null) : q.explanation
+      explanation: explanation !== undefined ? (explanation || null) : q.explanation,
+      class: questionClass !== undefined ? (questionClass || null) : q.class
     });
 
     res.json(q);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Delete all duplicate questions
+const deleteDuplicateQuestions = async (req, res) => {
+  try {
+    const questions = await Question.findAll({
+      order: [['createdAt', 'ASC']]
+    });
+
+    const seen = new Set();
+    const deleteIds = [];
+
+    questions.forEach(q => {
+      // Create a unique hash key for comparison
+      const normQuestion = (q.question || '').trim().toLowerCase();
+      const normClass = (q.class || '').trim().toLowerCase();
+      const normA = (q.optionA || '').trim().toLowerCase();
+      const normB = (q.optionB || '').trim().toLowerCase();
+      const normC = (q.optionC || '').trim().toLowerCase();
+      const normD = (q.optionD || '').trim().toLowerCase();
+      const normAns = (q.correctAnswer || '').trim().toUpperCase();
+      const normImg = (q.imageUrl || '').trim().toLowerCase();
+
+      const key = `${normQuestion}|${normClass}|${normA}|${normB}|${normC}|${normD}|${normAns}|${normImg}`;
+
+      if (seen.has(key)) {
+        deleteIds.push(q.id);
+      } else {
+        seen.add(key);
+      }
+    });
+
+    let deletedCount = 0;
+    if (deleteIds.length > 0) {
+      deletedCount = await Question.destroy({
+        where: {
+          id: deleteIds
+        }
+      });
+    }
+
+    res.json({
+      message: `Successfully removed ${deletedCount} duplicate question(s).`,
+      count: deletedCount
+    });
+  } catch (error) {
+    console.error('Delete duplicates error:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -505,9 +711,11 @@ const deleteQuestion = async (req, res) => {
 module.exports = {
   createTest,
   uploadQuestions,
+  getQuestions,
   addQuestion,
   updateQuestion,
   deleteQuestion,
+  deleteDuplicateQuestions,
   getResults,
   exportResults,
   getTests,

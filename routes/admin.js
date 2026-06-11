@@ -5,9 +5,11 @@ const path = require('path');
 const {
   createTest,
   uploadQuestions,
+  getQuestions,
   addQuestion,
   updateQuestion,
   deleteQuestion,
+  deleteDuplicateQuestions,
   getResults,
   exportResults,
   getTests,
@@ -80,6 +82,9 @@ router.get('/test/:id', getTestDetails);
 router.put('/test/:id', updateTest);
 router.delete('/test/:id', deleteTest);
 
+// Question Bank (global, class-tagged)
+router.get('/questions', getQuestions);
+
 // Question Upload  
 // Supports: Excel only | ZIP (Excel + images) | Excel + separate image files
 router.post(
@@ -113,6 +118,7 @@ const singleImageMiddleware = (req, res, next) => {
 router.post('/question', singleImageMiddleware, addQuestion);
 router.put('/question/:id', singleImageMiddleware, updateQuestion);
 router.delete('/question/:id', deleteQuestion);
+router.delete('/questions/duplicates', deleteDuplicateQuestions);
 
 // Examiner Assignments
 router.post('/assign', assignExaminers);

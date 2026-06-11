@@ -9,7 +9,7 @@ module.exports = (sequelize) => {
     },
     testId: {
       type: DataTypes.STRING,
-      allowNull: false
+      allowNull: true
     },
     question: {
       type: DataTypes.TEXT,

@@ -98,13 +98,17 @@ const googleLogin = async (req, res) => {
       }
     }
 
-    // If role is EXAMINER, verify they are assigned to at least one test container
+    // If role is EXAMINER, verify they are authorized (either registered or assigned to at least one test container)
     if (role === 'EXAMINER') {
       const assignmentCount = await TestAssignment.count({
         where: { examineeEmail: email }
       });
 
-      if (assignmentCount === 0) {
+      const inRegistry = await ExaminerRegistration.count({
+        where: { email }
+      });
+
+      if (assignmentCount === 0 && inRegistry === 0) {
         return res.status(403).json({ 
           error: 'Access Denied: Your email address is not registered/authorized to take any assessments in this system. Please request the administrator to assign your email to a test container first.' 
         });
@@ -248,12 +252,16 @@ const examinerRegNoLogin = async (req, res) => {
       where: { email }
     });
 
-    // If role is EXAMINER, verify they are assigned to at least one test container
+    // If role is EXAMINER, verify they are authorized (either registered or assigned to at least one test container)
     const assignmentCount = await TestAssignment.count({
       where: { examineeEmail: email }
     });
 
-    if (assignmentCount === 0) {
+    const inRegistry = await ExaminerRegistration.count({
+      where: { email }
+    });
+
+    if (assignmentCount === 0 && inRegistry === 0) {
       return res.status(403).json({ 
         error: 'Access Denied: Your email address is not registered/authorized to take any assessments in this system. Please request the administrator to assign your email to a test container first.' 
       });
