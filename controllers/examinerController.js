@@ -1,4 +1,6 @@
+const { Op } = require('sequelize');
 const { User, Test, Question, TestAssignment, Result, Answer, sequelize } = require('../models');
+const { getClassGroup, resolveCanonicalClassRange } = require('../utils/classMapper');
 
 // Helper function to shuffle an array (Fisher-Yates)
 function shuffleArray(array) {
@@ -45,7 +47,8 @@ const getAssignedTests = async (req, res) => {
 
     for (const test of allPublishedTests) {
       const allowed = Array.isArray(test.allowedClasses) ? test.allowedClasses : [];
-      const isClassAllowed = allowed.length === 0 || (cleanExaminerClass && allowed.some(c => c.trim().toLowerCase() === cleanExaminerClass));
+      const resolvedStudentClass = resolveCanonicalClassRange(cleanExaminerClass);
+      const isClassAllowed = allowed.length === 0 || (resolvedStudentClass && allowed.some(c => resolveCanonicalClassRange(c) === resolvedStudentClass));
 
       if (assignedTestIds.has(test.id) || isClassAllowed) {
         filteredTests.push(test);
@@ -54,11 +57,13 @@ const getAssignedTests = async (req, res) => {
 
     let questionCount = 0;
     if (cleanExaminerClass) {
+      const classGroup = getClassGroup(cleanExaminerClass);
       questionCount = await Question.count({
-        where: sequelize.where(
-          sequelize.fn('lower', sequelize.col('class')),
-          cleanExaminerClass
-        )
+        where: {
+          class: {
+            [Op.in]: classGroup
+          }
+        }
       });
     } else {
       questionCount = await Question.count();
@@ -118,7 +123,8 @@ const getTestQuestions = async (req, res) => {
     const cleanExaminerClass = examinerClass ? examinerClass.trim().toLowerCase() : null;
 
     const allowedClasses = Array.isArray(test.allowedClasses) ? test.allowedClasses : [];
-    const isClassAllowed = allowedClasses.length === 0 || (cleanExaminerClass && allowedClasses.some(c => c.trim().toLowerCase() === cleanExaminerClass));
+    const resolvedStudentClass = resolveCanonicalClassRange(cleanExaminerClass);
+    const isClassAllowed = allowedClasses.length === 0 || (resolvedStudentClass && allowedClasses.some(c => resolveCanonicalClassRange(c) === resolvedStudentClass));
 
     if (!assignment && !isClassAllowed) {
       return res.status(403).json({ error: 'You are not assigned to this test.' });
@@ -142,11 +148,13 @@ const getTestQuestions = async (req, res) => {
     // Fetch questions matching the examiner's class
     let filteredQuestions = [];
     if (cleanExaminerClass) {
+      const classGroup = getClassGroup(cleanExaminerClass);
       filteredQuestions = await Question.findAll({
-        where: sequelize.where(
-          sequelize.fn('lower', sequelize.col('class')),
-          cleanExaminerClass
-        ),
+        where: {
+          class: {
+            [Op.in]: classGroup
+          }
+        },
         attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'class']
       });
     } else {
@@ -217,11 +225,13 @@ const submitTest = async (req, res) => {
 
     let questions = [];
     if (cleanExaminerClass) {
+      const classGroup = getClassGroup(cleanExaminerClass);
       questions = await Question.findAll({
-        where: sequelize.where(
-          sequelize.fn('lower', sequelize.col('class')),
-          cleanExaminerClass
-        )
+        where: {
+          class: {
+            [Op.in]: classGroup
+          }
+        }
       });
     } else {
       questions = await Question.findAll();
@@ -358,11 +368,13 @@ const getResultDetails = async (req, res) => {
       let questions = [];
       const userClass = result.User ? result.User.class : null;
       if (userClass) {
+        const classGroup = getClassGroup(userClass);
         questions = await Question.findAll({
-          where: sequelize.where(
-            sequelize.fn('lower', sequelize.col('class')),
-            userClass.trim().toLowerCase()
-          )
+          where: {
+            class: {
+              [Op.in]: classGroup
+            }
+          }
         });
       } else {
         questions = await Question.findAll();

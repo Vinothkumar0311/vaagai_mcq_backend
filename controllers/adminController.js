@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const path = require('path');
 const { generateTestId } = require('../utils/generateTestId');
 const { processUpload } = require('../utils/uploadQuestions');
+const { getClassGroup, resolveCanonicalClassRange } = require('../utils/classMapper');
 
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads', 'question-images');
 const PUBLIC_IMAGE_PATH = '/uploads/question-images';
@@ -70,7 +71,27 @@ const uploadQuestions = async (req, res) => {
       imageFiles
     );
 
-    // Fetch all existing questions to check for duplicates in DB
+    // Collect all classes/ranges present in the uploaded sheet
+    const classesToDelete = new Set();
+    questionsData.forEach(q => {
+      if (q.class) {
+        const group = getClassGroup(q.class);
+        group.forEach(gc => classesToDelete.add(gc.trim().toLowerCase()));
+      }
+    });
+
+    // Delete older questions belonging to these class groups
+    if (classesToDelete.size > 0) {
+      await Question.destroy({
+        where: {
+          class: {
+            [Op.in]: Array.from(classesToDelete)
+          }
+        }
+      });
+    }
+
+    // Fetch all remaining existing questions to check for duplicates in DB
     const existing = await Question.findAll();
     const seen = new Set();
     
@@ -158,7 +179,8 @@ const getQuestions = async (req, res) => {
       if (className === 'Unassigned') {
         where.class = { [Op.or]: [null, ''] };
       } else {
-        where.class = className;
+        const classGroup = getClassGroup(className);
+        where.class = { [Op.in]: classGroup };
       }
     }
     if (search) {
@@ -357,9 +379,12 @@ const getTests = async (req, res) => {
       let qCount = 0;
       const allowed = Array.isArray(plain.allowedClasses) ? plain.allowedClasses : [];
       if (allowed.length > 0) {
+        const uniqueResolvedClasses = new Set();
         allowed.forEach(c => {
-          const normC = c.trim().toLowerCase();
-          qCount += classCountMap[normC] || 0;
+          getClassGroup(c).forEach(gc => uniqueResolvedClasses.add(gc.toLowerCase()));
+        });
+        uniqueResolvedClasses.forEach(c => {
+          qCount += classCountMap[c] || 0;
         });
       } else {
         qCount = totalQuestionsCount;
@@ -408,10 +433,14 @@ const getTestDetails = async (req, res) => {
     const allowed = Array.isArray(test.allowedClasses) ? test.allowedClasses : [];
     let questions = [];
     if (allowed.length > 0) {
+      const allAllowedClasses = new Set();
+      allowed.forEach(c => {
+        getClassGroup(c).forEach(gc => allAllowedClasses.add(gc));
+      });
       questions = await Question.findAll({
         where: {
           class: {
-            [Op.in]: allowed
+            [Op.in]: Array.from(allAllowedClasses)
           }
         }
       });
@@ -563,7 +592,7 @@ const addQuestion = async (req, res) => {
     const duplicateCheck = await Question.findOne({
       where: {
         question: question || null,
-        class: questionClass || null,
+        class: resolveCanonicalClassRange(questionClass) || null,
         optionA: optionA,
         optionB: optionB,
         optionC: optionC,
@@ -599,7 +628,7 @@ const addQuestion = async (req, res) => {
       correctAnswer: correctAnswer.toUpperCase(),
       imageUrl,
       explanation: explanation || null,
-      class: questionClass || null
+      class: resolveCanonicalClassRange(questionClass) || null
     });
 
     res.status(201).json(q);
@@ -645,7 +674,7 @@ const updateQuestion = async (req, res) => {
       correctAnswer: correctAnswer ? correctAnswer.toUpperCase() : q.correctAnswer,
       imageUrl,
       explanation: explanation !== undefined ? (explanation || null) : q.explanation,
-      class: questionClass !== undefined ? (questionClass || null) : q.class
+      class: questionClass !== undefined ? (resolveCanonicalClassRange(questionClass) || null) : q.class
     });
 
     res.json(q);

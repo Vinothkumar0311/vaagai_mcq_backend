@@ -2,6 +2,7 @@ const xlsx = require('xlsx');
 const AdmZip = require('adm-zip');
 const path = require('path');
 const fs = require('fs');
+const { resolveCanonicalClassRange } = require('./classMapper');
 
 // Supported image extensions
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
@@ -282,7 +283,7 @@ function processUpload(fileBuffer, mimetype, originalName, testId, uploadsDir, p
       correctAnswer: normalised.correctAnswer,
       imageUrl,
       explanation: normalised.explanation || null,
-      class: normalised.class || null
+      class: resolveCanonicalClassRange(normalised.class) || normalised.class
     });
   });
 
