@@ -2,7 +2,7 @@ const xlsx = require('xlsx');
 const AdmZip = require('adm-zip');
 const path = require('path');
 const fs = require('fs');
-const { resolveCanonicalClassRange } = require('./classMapper');
+const { resolveCanonicalClassRange, convertExcelDateToClassRange } = require('./classMapper');
 
 // Supported image extensions
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
@@ -120,7 +120,8 @@ function normaliseRow(row, rowIndex) {
 
   Object.keys(row).forEach(key => {
     const cleanKey = key.trim().toLowerCase();
-    const val = row[key] !== undefined && row[key] !== null ? String(row[key]).trim() : '';
+    const rawVal = row[key];
+    const val = rawVal !== undefined && rawVal !== null ? String(rawVal).trim() : '';
 
     if (cleanKey === 'question' || cleanKey === 'question text') {
       questionText = val;
@@ -139,7 +140,7 @@ function normaliseRow(row, rowIndex) {
     } else if (['explanation', 'explain', 'ans_desc'].includes(cleanKey)) {
       explanation = val;
     } else if (['class', 'grade', 'class_name', 'questionclass'].includes(cleanKey)) {
-      questionClass = val || null;
+      questionClass = rawVal !== undefined && rawVal !== null ? convertExcelDateToClassRange(rawVal) : null;
     }
   });
 
