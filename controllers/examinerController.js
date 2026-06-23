@@ -384,6 +384,8 @@ const getResultDetails = async (req, res) => {
 
     const formattedResult = {
       ...plainResult,
+      answers: plainResult.Answers || [],
+      questions: plainResult.Test ? plainResult.Test.Questions : [],
       testName: plainResult.Test ? plainResult.Test.name : 'N/A',
       userName: plainResult.User ? plainResult.User.name : 'N/A',
       userEmail: plainResult.User ? plainResult.User.email : 'N/A'
