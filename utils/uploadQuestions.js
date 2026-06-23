@@ -1,17 +1,28 @@
-const xlsx = require('xlsx');
-const AdmZip = require('adm-zip');
-const path = require('path');
-const fs = require('fs');
-const { resolveCanonicalClassRange, convertExcelDateToClassRange } = require('./classMapper');
+const xlsx = require("xlsx");
+const AdmZip = require("adm-zip");
+const path = require("path");
+const fs = require("fs");
+const {
+  resolveCanonicalClassRange,
+  convertExcelDateToClassRange,
+} = require("./classMapper");
 
 // Supported image extensions
-const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+const IMAGE_EXTENSIONS = [
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".svg",
+];
 
 /**
  * Parse an Excel buffer and return an array of raw row objects.
  */
 function parseExcelBuffer(buffer) {
-  const workbook = xlsx.read(buffer, { type: 'buffer' });
+  const workbook = xlsx.read(buffer, { type: "buffer" });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   return xlsx.utils.sheet_to_json(sheet);
@@ -28,48 +39,64 @@ function extractEmbeddedImagesFromXlsx(fileBuffer) {
     const entries = zip.getEntries();
 
     // 1. Find drawing relation path from sheet1 rels
-    const sheetRelEntry = entries.find(e => e.entryName === 'xl/worksheets/_rels/sheet1.xml.rels');
+    const sheetRelEntry = entries.find(
+      (e) => e.entryName === "xl/worksheets/_rels/sheet1.xml.rels",
+    );
     if (!sheetRelEntry) return imageMap;
 
-    const sheetRelXml = sheetRelEntry.getData().toString('utf8');
-    const drawingMatch = sheetRelXml.match(/Type="[^"]*relationships\/drawing"\s+Target="([^"]*)"/i) ||
-                         sheetRelXml.match(/Target="([^"]*)"\s+Type="[^"]*relationships\/drawing"/i);
+    const sheetRelXml = sheetRelEntry.getData().toString("utf8");
+    const drawingMatch =
+      sheetRelXml.match(
+        /Type="[^"]*relationships\/drawing"\s+Target="([^"]*)"/i,
+      ) ||
+      sheetRelXml.match(
+        /Target="([^"]*)"\s+Type="[^"]*relationships\/drawing"/i,
+      );
 
-    let drawingPath = 'xl/drawings/drawing1.xml'; // fallback
+    let drawingPath = "xl/drawings/drawing1.xml"; // fallback
     if (drawingMatch) {
       const target = drawingMatch[1];
-      drawingPath = path.posix.join('xl', 'worksheets', target).replace(/\\/g, '/');
+      drawingPath = path.posix
+        .join("xl", "worksheets", target)
+        .replace(/\\/g, "/");
       // Normalize path (handle '..')
-      drawingPath = drawingPath.split('/').reduce((acc, part) => {
-        if (part === '..') acc.pop();
-        else acc.push(part);
-        return acc;
-      }, []).join('/');
+      drawingPath = drawingPath
+        .split("/")
+        .reduce((acc, part) => {
+          if (part === "..") acc.pop();
+          else acc.push(part);
+          return acc;
+        }, [])
+        .join("/");
     }
 
-    const drawingEntry = entries.find(e => e.entryName === drawingPath);
+    const drawingEntry = entries.find((e) => e.entryName === drawingPath);
     if (!drawingEntry) return imageMap;
 
     // 2. Read drawing relationships (mapping rId -> media path)
-    const drawingRelPath = drawingPath.replace('xl/drawings/', 'xl/drawings/_rels/') + '.rels';
-    const drawingRelEntry = entries.find(e => e.entryName === drawingRelPath);
+    const drawingRelPath =
+      drawingPath.replace("xl/drawings/", "xl/drawings/_rels/") + ".rels";
+    const drawingRelEntry = entries.find((e) => e.entryName === drawingRelPath);
     if (!drawingRelEntry) return imageMap;
 
-    const drawingRelXml = drawingRelEntry.getData().toString('utf8');
+    const drawingRelXml = drawingRelEntry.getData().toString("utf8");
     const rels = {};
-    const relRegex = /<Relationship\s+Id="([^"]*)"\s+Type="[^"]*"\s+Target="([^"]*)"/gi;
+    const relRegex =
+      /<Relationship\s+Id="([^"]*)"\s+Type="[^"]*"\s+Target="([^"]*)"/gi;
     let match;
     while ((match = relRegex.exec(drawingRelXml)) !== null) {
       rels[match[1]] = match[2];
     }
-    const relRegexAlt = /<Relationship\s+Target="([^"]*)"\s+Type="[^"]*"\s+Id="([^"]*)"/gi;
+    const relRegexAlt =
+      /<Relationship\s+Target="([^"]*)"\s+Type="[^"]*"\s+Id="([^"]*)"/gi;
     while ((match = relRegexAlt.exec(drawingRelXml)) !== null) {
       rels[match[2]] = match[1];
     }
 
     // 3. Parse anchors from drawing XML
-    const drawingXml = drawingEntry.getData().toString('utf8');
-    const anchorRegex = /<(xdr:twoCellAnchor|xdr:oneCellAnchor)[^>]*>([\s\S]*?)<\/(xdr:twoCellAnchor|xdr:oneCellAnchor)>/g;
+    const drawingXml = drawingEntry.getData().toString("utf8");
+    const anchorRegex =
+      /<(xdr:twoCellAnchor|xdr:oneCellAnchor)[^>]*>([\s\S]*?)<\/(xdr:twoCellAnchor|xdr:oneCellAnchor)>/g;
     let anchorMatch;
     while ((anchorMatch = anchorRegex.exec(drawingXml)) !== null) {
       const anchorContent = anchorMatch[2];
@@ -81,25 +108,30 @@ function extractEmbeddedImagesFromXlsx(fileBuffer) {
         const rId = blipMatch[1];
         const targetPath = rels[rId];
         if (targetPath) {
-          let mediaPath = path.posix.join('xl', 'drawings', targetPath).replace(/\\/g, '/');
-          mediaPath = mediaPath.split('/').reduce((acc, part) => {
-            if (part === '..') acc.pop();
-            else acc.push(part);
-            return acc;
-          }, []).join('/');
+          let mediaPath = path.posix
+            .join("xl", "drawings", targetPath)
+            .replace(/\\/g, "/");
+          mediaPath = mediaPath
+            .split("/")
+            .reduce((acc, part) => {
+              if (part === "..") acc.pop();
+              else acc.push(part);
+              return acc;
+            }, [])
+            .join("/");
 
-          const mediaEntry = entries.find(e => e.entryName === mediaPath);
+          const mediaEntry = entries.find((e) => e.entryName === mediaPath);
           if (mediaEntry) {
             imageMap[rowIndex] = {
               filename: path.basename(mediaPath),
-              buffer: mediaEntry.getData()
+              buffer: mediaEntry.getData(),
             };
           }
         }
       }
     }
   } catch (error) {
-    console.error('Error extracting embedded images:', error);
+    console.error("Error extracting embedded images:", error);
   }
   return imageMap;
 }
@@ -108,50 +140,81 @@ function extractEmbeddedImagesFromXlsx(fileBuffer) {
  * Normalise a raw Excel row into a question object.
  */
 function normaliseRow(row, rowIndex) {
-  let questionText = '';
-  let optionA = '';
-  let optionB = '';
-  let optionC = '';
-  let optionD = '';
-  let correctAnswer = '';
+  let questionText = "";
+  let optionA = "";
+  let optionB = "";
+  let optionC = "";
+  let optionD = "";
+  let correctAnswer = "";
   let imageFilename = null;
-  let explanation = '';
+  let explanation = "";
   let questionClass = null;
 
-  Object.keys(row).forEach(key => {
+  Object.keys(row).forEach((key) => {
     const cleanKey = key.trim().toLowerCase();
     const rawVal = row[key];
-    const val = rawVal !== undefined && rawVal !== null ? String(rawVal).trim() : '';
+    const val =
+      rawVal !== undefined && rawVal !== null ? String(rawVal).trim() : "";
 
-    if (cleanKey === 'question' || cleanKey === 'question text') {
+    if (cleanKey === "question" || cleanKey === "question text") {
       questionText = val;
-    } else if (['option a', 'optiona', 'a', 'option_a'].includes(cleanKey)) {
+    } else if (["option a", "optiona", "a", "option_a"].includes(cleanKey)) {
       optionA = val;
-    } else if (['option b', 'optionb', 'b', 'option_b'].includes(cleanKey)) {
+    } else if (["option b", "optionb", "b", "option_b"].includes(cleanKey)) {
       optionB = val;
-    } else if (['option c', 'optionc', 'c', 'option_c'].includes(cleanKey)) {
+    } else if (["option c", "optionc", "c", "option_c"].includes(cleanKey)) {
       optionC = val;
-    } else if (['option d', 'optiond', 'd', 'option_d'].includes(cleanKey)) {
+    } else if (["option d", "optiond", "d", "option_d"].includes(cleanKey)) {
       optionD = val;
-    } else if (['correct answer', 'correctanswer', 'correct', 'answer'].includes(cleanKey)) {
+    } else if (
+      ["correct answer", "correctanswer", "correct", "answer"].includes(
+        cleanKey,
+      )
+    ) {
       correctAnswer = val.toUpperCase();
-    } else if (['image', 'image url', 'imageurl', 'image_url', 'image file', 'imagefile', 'image_file'].includes(cleanKey)) {
+    } else if (
+      [
+        "image",
+        "image url",
+        "imageurl",
+        "image_url",
+        "image file",
+        "imagefile",
+        "image_file",
+      ].includes(cleanKey)
+    ) {
       imageFilename = val || null;
-    } else if (['explanation', 'explain', 'ans_desc'].includes(cleanKey)) {
+    } else if (["explanation", "explain", "ans_desc"].includes(cleanKey)) {
       explanation = val;
-    } else if (['class', 'grade', 'class_name', 'questionclass'].includes(cleanKey)) {
-      questionClass = rawVal !== undefined && rawVal !== null ? convertExcelDateToClassRange(rawVal) : null;
+    } else if (
+      ["class", "grade", "class_name", "questionclass"].includes(cleanKey)
+    ) {
+      questionClass =
+        rawVal !== undefined && rawVal !== null
+          ? convertExcelDateToClassRange(rawVal)
+          : null;
     }
   });
 
-  return { questionText, optionA, optionB, optionC, optionD, correctAnswer, imageFilename, explanation, class: questionClass };
+  return {
+    questionText,
+    optionA,
+    optionB,
+    optionC,
+    optionD,
+    correctAnswer,
+    imageFilename,
+    explanation,
+    class: questionClass,
+  };
 }
 
 /**
  * Validate a normalised row.
  */
 function validateRow(row, rowIndex, hasImage) {
-  const { questionText, optionA, optionB, optionC, optionD, correctAnswer } = row;
+  const { questionText, optionA, optionB, optionC, optionD, correctAnswer } =
+    row;
 
   // Question is required unless there is an image associated with this row
   if (!questionText && !hasImage) {
@@ -162,7 +225,7 @@ function validateRow(row, rowIndex, hasImage) {
     return `Row ${rowIndex + 2}: Missing options (A-D) or Correct Answer.`;
   }
 
-  if (!['A', 'B', 'C', 'D'].includes(correctAnswer)) {
+  if (!["A", "B", "C", "D"].includes(correctAnswer)) {
     return `Row ${rowIndex + 2}: Invalid Correct Answer "${correctAnswer}". Must be A, B, C, or D.`;
   }
 
@@ -173,7 +236,7 @@ function validateRow(row, rowIndex, hasImage) {
  * Save an image buffer to the uploads/question-images directory.
  */
 function saveImageFile(buffer, originalName, uploadsDir) {
-  const ext = path.extname(originalName).toLowerCase() || '.png';
+  const ext = path.extname(originalName).toLowerCase() || ".png";
   const safeName = `${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
   const destPath = path.join(uploadsDir, safeName);
   if (!fs.existsSync(uploadsDir)) {
@@ -187,9 +250,17 @@ function saveImageFile(buffer, originalName, uploadsDir) {
  * Main processor: handles ZIP (excel + images), Excel + separate images,
  * and direct embedded image extraction from Excel files.
  */
-function processUpload(fileBuffer, mimetype, originalName, testId, uploadsDir, publicPath, imageFiles = []) {
-  const ext = path.extname(originalName || '').toLowerCase();
-  const isZip = ext === '.zip';
+function processUpload(
+  fileBuffer,
+  mimetype,
+  originalName,
+  testId,
+  uploadsDir,
+  publicPath,
+  imageFiles = [],
+) {
+  const ext = path.extname(originalName || "").toLowerCase();
+  const isZip = ext === ".zip";
 
   const imageMap = {};
   let excelBuffer = null;
@@ -200,16 +271,20 @@ function processUpload(fileBuffer, mimetype, originalName, testId, uploadsDir, p
     const entries = zip.getEntries();
     let excelEntry = null;
 
-    entries.forEach(entry => {
+    entries.forEach((entry) => {
       const name = entry.entryName;
       const basename = path.basename(name);
       const ext = path.extname(basename).toLowerCase();
 
       if (!entry.isDirectory) {
-        if (ext === '.xlsx' || ext === '.xls') {
+        if (ext === ".xlsx" || ext === ".xls") {
           if (!excelEntry) excelEntry = entry;
         } else if (IMAGE_EXTENSIONS.includes(ext)) {
-          const savedName = saveImageFile(entry.getData(), basename, uploadsDir);
+          const savedName = saveImageFile(
+            entry.getData(),
+            basename,
+            uploadsDir,
+          );
           imageMap[basename.toLowerCase()] = `${publicPath}/${savedName}`;
           imageMap[name.toLowerCase()] = `${publicPath}/${savedName}`;
         }
@@ -217,7 +292,9 @@ function processUpload(fileBuffer, mimetype, originalName, testId, uploadsDir, p
     });
 
     if (!excelEntry) {
-      throw new Error('No Excel file (.xlsx or .xls) found inside the ZIP archive.');
+      throw new Error(
+        "No Excel file (.xlsx or .xls) found inside the ZIP archive.",
+      );
     }
 
     excelBuffer = excelEntry.getData();
@@ -230,15 +307,19 @@ function processUpload(fileBuffer, mimetype, originalName, testId, uploadsDir, p
   }
 
   // Handle separately uploaded image files (multipart images[])
-  imageFiles.forEach(imgFile => {
-    const savedName = saveImageFile(imgFile.buffer, imgFile.originalname, uploadsDir);
+  imageFiles.forEach((imgFile) => {
+    const savedName = saveImageFile(
+      imgFile.buffer,
+      imgFile.originalname,
+      uploadsDir,
+    );
     imageMap[imgFile.originalname.toLowerCase()] = `${publicPath}/${savedName}`;
   });
 
   // Parse Excel rows
   const rows = parseExcelBuffer(excelBuffer);
   if (rows.length === 0) {
-    throw new Error('The Excel file is empty or has no data rows.');
+    throw new Error("The Excel file is empty or has no data rows.");
   }
 
   const questionsData = [];
@@ -261,16 +342,25 @@ function processUpload(fileBuffer, mimetype, originalName, testId, uploadsDir, p
 
     // Use embedded image if present
     if (embeddedImg) {
-      const savedName = saveImageFile(embeddedImg.buffer, embeddedImg.filename, uploadsDir);
+      const savedName = saveImageFile(
+        embeddedImg.buffer,
+        embeddedImg.filename,
+        uploadsDir,
+      );
       imageUrl = `${publicPath}/${savedName}`;
     } else if (normalised.imageFilename) {
       const key = normalised.imageFilename.toLowerCase();
       if (imageMap[key]) {
         imageUrl = imageMap[key];
-      } else if (normalised.imageFilename.startsWith('http://') || normalised.imageFilename.startsWith('https://')) {
+      } else if (
+        normalised.imageFilename.startsWith("http://") ||
+        normalised.imageFilename.startsWith("https://")
+      ) {
         imageUrl = normalised.imageFilename;
       } else {
-        warnings.push(`Row ${idx + 2}: Image file "${normalised.imageFilename}" was not found in the upload. Question saved without image.`);
+        warnings.push(
+          `Row ${idx + 2}: Image file "${normalised.imageFilename}" was not found in the upload. Question saved without image.`,
+        );
       }
     }
 
@@ -284,7 +374,7 @@ function processUpload(fileBuffer, mimetype, originalName, testId, uploadsDir, p
       correctAnswer: normalised.correctAnswer,
       imageUrl,
       explanation: normalised.explanation || null,
-      class: resolveCanonicalClassRange(normalised.class) || normalised.class
+      class: resolveCanonicalClassRange(normalised.class) || normalised.class,
     });
   });
 
