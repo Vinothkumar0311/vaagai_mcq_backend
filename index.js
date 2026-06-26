@@ -70,6 +70,24 @@ app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date() });
 });
 
+// Debug Endpoint to check deployed files
+app.get("/debug-routes", (req, res) => {
+  const fs = require("fs");
+  const path = require("path");
+  try {
+    const routes = fs.readdirSync(path.join(__dirname, "routes"));
+    const controllers = fs.readdirSync(path.join(__dirname, "controllers"));
+    res.json({
+      routes,
+      controllers,
+      time: new Date(),
+      commit: "841c32c-debug-v1"
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Mounting API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
