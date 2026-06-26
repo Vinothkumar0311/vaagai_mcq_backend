@@ -7,6 +7,7 @@ const path = require("path");
 const authRoutes = require("./routes/auth");
 const adminRoutes = require("./routes/admin");
 const examinerRoutes = require("./routes/examiner");
+const publicRoutes = require("./routes/public");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -72,6 +73,7 @@ app.get("/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/examiner", examinerRoutes);
+app.use("/api/public", publicRoutes);
 
 // 404 Route handler
 app.use((req, res, next) => {
@@ -246,6 +248,18 @@ sequelize
   })
   .then(async () => {
     await ensureUtf8mb4();
+    // Allow userId to be NULL in results table (needed for public/unauthenticated submissions)
+    try {
+      await sequelize.query(
+        "ALTER TABLE `results` MODIFY `userId` CHAR(36) NULL;"
+      );
+      console.log("results.userId column updated to allow NULL.");
+    } catch (err) {
+      // Column may already allow NULL \u2014 safe to ignore
+      if (!err.message.includes("Duplicate column") && !err.message.includes("doesn't exist")) {
+        console.warn("Could not alter results.userId column:", err.message);
+      }
+    }
     await seedRegistrationsIfEmpty();
     app.listen(PORT, () => {
       console.log(`=========================================`);

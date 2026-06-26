@@ -13,7 +13,7 @@ module.exports = (sequelize) => {
     },
     userId: {
       type: DataTypes.UUID,
-      allowNull: false
+      allowNull: true  // null for public (unauthenticated) submissions
     },
     score: {
       type: DataTypes.INTEGER,
