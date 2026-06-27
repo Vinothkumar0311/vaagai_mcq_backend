@@ -87,7 +87,7 @@ const getPublicTestQuestions = async (req, res) => {
           where: { resultId: existingResult.id },
           include: [{
             model: Question,
-            attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'correctAnswer', 'class']
+            attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'correctAnswer', 'class', 'explanation']
           }]
         });
         detailedAnswers = dbAnswers.map(ans => {
@@ -102,7 +102,8 @@ const getPublicTestQuestions = async (req, res) => {
             imageUrl: q.imageUrl,
             correctAnswer: q.correctAnswer,
             selectedOption: ans.selectedOption,
-            class: q.class
+            class: q.class,
+            explanation: q.explanation
           };
         });
       }
@@ -270,7 +271,7 @@ const submitPublicTest = async (req, res) => {
         where: { resultId: result.id },
         include: [{
           model: Question,
-          attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'correctAnswer', 'class']
+          attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'correctAnswer', 'class', 'explanation']
         }]
       });
       detailedAnswers = dbAnswers.map(ans => {
@@ -285,7 +286,8 @@ const submitPublicTest = async (req, res) => {
           imageUrl: q.imageUrl,
           correctAnswer: q.correctAnswer,
           selectedOption: ans.selectedOption,
-          class: q.class
+          class: q.class,
+          explanation: q.explanation
         };
       });
     }
