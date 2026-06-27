@@ -142,8 +142,26 @@ function convertExcelDateToClassRange(val) {
   return String(val).trim();
 }
 
+function parseAllowedClasses(allowedClasses) {
+  if (!allowedClasses) return [];
+  if (Array.isArray(allowedClasses)) return allowedClasses;
+  if (typeof allowedClasses === 'string') {
+    try {
+      const parsed = JSON.parse(allowedClasses);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {
+      if (allowedClasses.trim().startsWith('[')) {
+        return [];
+      }
+      return allowedClasses.split(',').map(s => s.trim()).filter(Boolean);
+    }
+  }
+  return [];
+}
+
 module.exports = {
   getClassGroup,
   resolveCanonicalClassRange,
-  convertExcelDateToClassRange
+  convertExcelDateToClassRange,
+  parseAllowedClasses
 };

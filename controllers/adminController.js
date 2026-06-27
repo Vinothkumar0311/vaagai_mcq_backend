@@ -14,6 +14,7 @@ const { processUpload } = require("../utils/uploadQuestions");
 const {
   getClassGroup,
   resolveCanonicalClassRange,
+  parseAllowedClasses,
 } = require("../utils/classMapper");
 
 const UPLOADS_DIR = path.join(__dirname, "..", "uploads", "question-images");
@@ -397,9 +398,7 @@ const getTests = async (req, res) => {
       const plain = t.get({ plain: true });
 
       let qCount = 0;
-      const allowed = Array.isArray(plain.allowedClasses)
-        ? plain.allowedClasses
-        : [];
+      const allowed = parseAllowedClasses(plain.allowedClasses);
       if (allowed.length > 0) {
         const uniqueResolvedClasses = new Set();
         allowed.forEach((c) => {
@@ -421,7 +420,7 @@ const getTests = async (req, res) => {
         duration: plain.duration,
         status: plain.status,
         publishResults: plain.publishResults,
-        allowedClasses: plain.allowedClasses,
+        allowedClasses: allowed,
         createdAt: plain.createdAt,
         updatedAt: plain.updatedAt,
         _count: {
@@ -455,9 +454,7 @@ const getTestDetails = async (req, res) => {
       return res.status(404).json({ error: "Test not found" });
     }
 
-    const allowed = Array.isArray(test.allowedClasses)
-      ? test.allowedClasses
-      : [];
+    const allowed = parseAllowedClasses(test.allowedClasses);
     let questions = [];
     if (allowed.length > 0) {
       const allAllowedClasses = new Set();
@@ -476,6 +473,7 @@ const getTestDetails = async (req, res) => {
     }
 
     const plainTest = test.get({ plain: true });
+    plainTest.allowedClasses = allowed;
     plainTest.Questions = questions;
 
     res.json(plainTest);
@@ -508,7 +506,9 @@ const updateTest = async (req, res) => {
     });
 
     const updated = await Test.findByPk(id);
-    res.json(updated);
+    const plainUpdated = updated.get({ plain: true });
+    plainUpdated.allowedClasses = parseAllowedClasses(plainUpdated.allowedClasses);
+    res.json(plainUpdated);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

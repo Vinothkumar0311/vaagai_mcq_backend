@@ -6,7 +6,7 @@ const {
   Answer,
   sequelize,
 } = require('../models');
-const { getClassGroup } = require('../utils/classMapper');
+const { getClassGroup, parseAllowedClasses } = require('../utils/classMapper');
 
 // Helper function to shuffle an array (Fisher-Yates)
 function shuffleArray(array) {
@@ -29,7 +29,7 @@ const getPublicTestInfo = async (req, res) => {
 
     // Count questions
     let questionCount = 0;
-    const allowed = Array.isArray(test.allowedClasses) ? test.allowedClasses : [];
+    const allowed = parseAllowedClasses(test.allowedClasses);
     if (allowed.length > 0) {
       const allClasses = new Set();
       allowed.forEach(c => {
@@ -87,7 +87,7 @@ const getPublicTestQuestions = async (req, res) => {
     }
 
     // Fetch all questions for this test
-    const allowed = Array.isArray(test.allowedClasses) ? test.allowedClasses : [];
+    const allowed = parseAllowedClasses(test.allowedClasses);
     let questions = [];
 
     if (allowed.length > 0) {
