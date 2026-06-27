@@ -192,7 +192,8 @@ const submitPublicTest = async (req, res) => {
     }
 
     // Fetch all questions to compute score
-    const allowed = Array.isArray(test.allowedClasses) ? test.allowedClasses : [];
+    // Use parseAllowedClasses to handle both JSON arrays and serialized strings from MySQL
+    const allowed = parseAllowedClasses(test.allowedClasses);
     let questions = [];
     if (allowed.length > 0) {
       const allClasses = new Set();
@@ -230,7 +231,8 @@ const submitPublicTest = async (req, res) => {
         if (!seenIds.has(ans.questionId)) {
           seenIds.add(ans.questionId);
           const correctAnswer = answerKey[ans.questionId];
-          if (correctAnswer && ans.selectedOption === correctAnswer) score++;
+          if (correctAnswer && ans.selectedOption &&
+              ans.selectedOption.toUpperCase() === correctAnswer.toUpperCase()) score++;
           submissionAnswers.push({
             questionId: ans.questionId,
             selectedOption: ans.selectedOption || ''
