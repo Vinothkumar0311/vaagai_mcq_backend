@@ -80,7 +80,7 @@ const getPublicTestQuestions = async (req, res) => {
     });
 
     if (existingResult) {
-      const resultsPublished = !!test.publishResults;
+      const resultsPublished = true;
       let detailedAnswers = [];
       if (resultsPublished) {
         const dbAnswers = await Answer.findAll({
@@ -261,7 +261,7 @@ const submitPublicTest = async (req, res) => {
       return newResult;
     });
 
-    const resultsPublished = !!test.publishResults;
+    const resultsPublished = true;
     let detailedAnswers = [];
     if (resultsPublished) {
       const dbAnswers = await Answer.findAll({
