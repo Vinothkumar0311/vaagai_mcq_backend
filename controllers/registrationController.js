@@ -1,4 +1,4 @@
-const { ExaminerRegistration } = require('../models');
+const { ExaminerRegistration, Question } = require('../models');
 const { Op } = require('sequelize');
 const xlsx = require('xlsx');
 
@@ -51,16 +51,27 @@ const getRegistrations = async (req, res) => {
 // Get distinct classes list for filtering/selecting
 const getDistinctClasses = async (req, res) => {
   try {
-    const classes = await ExaminerRegistration.findAll({
+    const regClasses = await ExaminerRegistration.findAll({
       attributes: ['class'],
       group: ['class'],
       raw: true
     });
-    const classList = classes
-      .map(c => c.class)
-      .filter(c => c !== null && c !== undefined && c !== '')
-      .sort();
     
+    const questionClasses = await Question.findAll({
+      attributes: ['class'],
+      group: ['class'],
+      raw: true
+    });
+
+    const set = new Set();
+    regClasses.forEach(c => {
+      if (c.class) set.add(c.class.trim());
+    });
+    questionClasses.forEach(c => {
+      if (c.class) set.add(c.class.trim());
+    });
+
+    const classList = Array.from(set).filter(c => c !== '').sort();
     res.json(classList);
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -421,6 +421,7 @@ const getTests = async (req, res) => {
         duration: plain.duration,
         status: plain.status,
         publishResults: plain.publishResults,
+        allowedClasses: plain.allowedClasses,
         createdAt: plain.createdAt,
         updatedAt: plain.updatedAt,
         _count: {
