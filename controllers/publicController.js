@@ -80,9 +80,44 @@ const getPublicTestQuestions = async (req, res) => {
     });
 
     if (existingResult) {
+      const resultsPublished = !!test.publishResults;
+      let detailedAnswers = [];
+      if (resultsPublished) {
+        const dbAnswers = await Answer.findAll({
+          where: { resultId: existingResult.id },
+          include: [{
+            model: Question,
+            attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'correctAnswer', 'class']
+          }]
+        });
+        detailedAnswers = dbAnswers.map(ans => {
+          const q = ans.Question || {};
+          return {
+            questionId: ans.questionId,
+            questionText: q.question,
+            optionA: q.optionA,
+            optionB: q.optionB,
+            optionC: q.optionC,
+            optionD: q.optionD,
+            imageUrl: q.imageUrl,
+            correctAnswer: q.correctAnswer,
+            selectedOption: ans.selectedOption,
+            class: q.class
+          };
+        });
+      }
+
       return res.status(400).json({
         error: 'You have already completed this test.',
-        result: existingResult
+        result: {
+          id: existingResult.id,
+          testId: existingResult.testId,
+          score: resultsPublished ? existingResult.score : null,
+          total: resultsPublished ? existingResult.total : null,
+          resultsPublished,
+          name: existingResult.examinerName,
+          detailedAnswers
+        }
       });
     }
 
@@ -227,6 +262,31 @@ const submitPublicTest = async (req, res) => {
     });
 
     const resultsPublished = !!test.publishResults;
+    let detailedAnswers = [];
+    if (resultsPublished) {
+      const dbAnswers = await Answer.findAll({
+        where: { resultId: result.id },
+        include: [{
+          model: Question,
+          attributes: ['id', 'question', 'optionA', 'optionB', 'optionC', 'optionD', 'imageUrl', 'correctAnswer', 'class']
+        }]
+      });
+      detailedAnswers = dbAnswers.map(ans => {
+        const q = ans.Question || {};
+        return {
+          questionId: ans.questionId,
+          questionText: q.question,
+          optionA: q.optionA,
+          optionB: q.optionB,
+          optionC: q.optionC,
+          optionD: q.optionD,
+          imageUrl: q.imageUrl,
+          correctAnswer: q.correctAnswer,
+          selectedOption: ans.selectedOption,
+          class: q.class
+        };
+      });
+    }
 
     res.status(201).json({
       message: 'Test submitted successfully.',
@@ -236,6 +296,7 @@ const submitPublicTest = async (req, res) => {
       resultsPublished,
       testName: test.name,
       name: name.trim(),
+      detailedAnswers
     });
   } catch (error) {
     console.error('submitPublicTest error:', error);
